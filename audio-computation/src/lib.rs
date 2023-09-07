@@ -1,6 +1,11 @@
-use std::f32::consts::PI;
+use std::{cmp::min, f32::consts::PI};
 
-use fftw::{self, array::AlignedVec, plan::{R2CPlan, R2CPlan32}, types::{Flag, c32}};
+use fftw::{
+    self,
+    array::AlignedVec,
+    plan::{R2CPlan, R2CPlan32},
+    types::{c32, Flag},
+};
 #[allow(dead_code)]
 pub struct Plan {
     fft_bassbuffer_size: i32,
@@ -295,9 +300,9 @@ fn init(
     let mut relative_cut_off = vec![0; p.number_of_bars as usize + 1];
     p.bass_cut_off_bar = -1;
     p.treble_cut_off_bar = -1;
-    let first_bar = 1;
-    let first_treble_bar = 0;
-    let bar_buffer = vec![0; p.number_of_bars as usize + 1];
+    let mut first_bar = 1;
+    let mut first_treble_bar = 0;
+    let mut bar_buffer = vec![0; p.number_of_bars as usize + 1];
     for n in 0..p.number_of_bars as usize + 1 {
         let bar_distribution_coeff = -frequency_constant
             + ((n + 1) as f32) / ((p.number_of_bars + 1) as f32) * frequency_constant;
@@ -314,10 +319,182 @@ fn init(
         p.eq[n] = p.cut_off_frequency[n];
         p.eq[n] /= 2.0_f32.powi(29);
         p.eq[n] /= p.fft_bassbuffer_size.ilog2() as f32;
+        if p.cut_off_frequency[n] < bass_cut_off as f32 {
+            bar_buffer[n] = 1;
+            p.FFTbuffer_lower_cut_off[n] = relative_cut_off[n] * (p.fft_bassbuffer_size / 2);
+            p.bass_cut_off_bar += 1;
+            p.treble_cut_off_bar += 1;
+            if p.bass_cut_off_bar > 0 {
+                first_bar = 0;
+            }
+            p.FFTbuffer_lower_cut_off[n] =
+                min(p.FFTbuffer_lower_cut_off[n], p.fft_bassbuffer_size / 2);
+        } else if p.cut_off_frequency[n] > bass_cut_off as f32
+            && p.cut_off_frequency[n] < treble_cut_off as f32
+        {
+            bar_buffer[n] = 2;
+            p.FFTbuffer_lower_cut_off[n] = relative_cut_off[n] * (p.fft_midbuffer_size / 2);
+            p.treble_cut_off_bar += 1;
+            if p.treble_cut_off_bar - p.bass_cut_off_bar == 1 {
+                first_bar = 1;
+                if n > 0 {
+                    p.FFTbuffer_upper_cut_off[n - 1] =
+                        relative_cut_off[n] * (p.fft_bassbuffer_size / 2);
+                }
+            } else {
+                first_bar = 0;
+            }
+            p.FFTbuffer_lower_cut_off[n] =
+                min(p.FFTbuffer_lower_cut_off[n], p.fft_midbuffer_size / 2);
+        } else {
+            // TREBLE
+            bar_buffer[n] = 3;
+            p.FFTbuffer_lower_cut_off[n] = relative_cut_off[n] * (p.fft_treblebuffer_size / 2);
+            first_treble_bar += 1;
+            if first_treble_bar == 1 {
+                first_bar = 1;
+                if n > 0 {
+                    p.FFTbuffer_upper_cut_off[n - 1] =
+                        relative_cut_off[n] * (p.fft_midbuffer_size / 2);
+                }
+            } else {
+                first_bar = 0;
+            }
+            p.FFTbuffer_lower_cut_off[n] =
+                min(p.FFTbuffer_lower_cut_off[n], p.fft_treblebuffer_size / 2);
+        }
+        if n > 0 {
+            if first_bar == 0 {
+                p.FFTbuffer_upper_cut_off[n - 1] = p.FFTbuffer_lower_cut_off[n] - 1;
+                // pushing the spectrum up if the exponential function gets "clumped" in the
+                // bass and caluclating new cut off frequencies
+                if p.FFTbuffer_lower_cut_off[n] <= p.FFTbuffer_lower_cut_off[n - 1] {
+                    let mut room_for_more: i32 = 0;
+                    if bar_buffer[n] == 1 {
+                        if p.FFTbuffer_lower_cut_off[n - 1] + 1 < p.fft_bassbuffer_size / 2 + 1 {
+                            room_for_more = 1;
+                        }
+                    } else if bar_buffer[n] == 2 {
+                        if p.FFTbuffer_lower_cut_off[n - 1] + 1 < p.fft_midbuffer_size / 2 + 1 {
+                            room_for_more = 1;
+                        }
+                    } else if bar_buffer[n] == 3 {
+                        if p.FFTbuffer_lower_cut_off[n - 1] + 1 < p.fft_treblebuffer_size / 2 + 1 {
+                            room_for_more = 1;
+                        }
+                    }
+                    if room_for_more == 1 {
+                        p.FFTbuffer_lower_cut_off[n] = p.FFTbuffer_lower_cut_off[n - 1] + 1;
+                        p.FFTbuffer_upper_cut_off[n - 1] = p.FFTbuffer_lower_cut_off[n] - 1;
+                        if bar_buffer[n] == 1 {
+                            relative_cut_off[n] = ((p.FFTbuffer_lower_cut_off[n] as f32)
+                                / (p.fft_bassbuffer_size as f32 / 2.0))
+                                as i32;
+                        } else if bar_buffer[n] == 2 {
+                            relative_cut_off[n] = ((p.FFTbuffer_lower_cut_off[n] as f32)
+                                / (p.fft_midbuffer_size as f32 / 2.0))
+                                as i32;
+                        } else if bar_buffer[n] == 3 {
+                            relative_cut_off[n] = (p.FFTbuffer_lower_cut_off[n] as f32
+                                / (p.fft_treblebuffer_size as f32 / 2.0))
+                                as i32;
+                        }
 
+                        p.cut_off_frequency[n] = relative_cut_off[n] as f32 * (p.rate as f32 / 2.0);
+                    }
+                }
+            } else {
+                if p.FFTbuffer_upper_cut_off[n - 1] <= p.FFTbuffer_lower_cut_off[n - 1] {
+                    p.FFTbuffer_upper_cut_off[n - 1] = p.FFTbuffer_lower_cut_off[n - 1] + 1;
+                }
+            }
+        }
     }
+    drop(bar_buffer);
+    drop(relative_cut_off);
 
     return p;
 }
-fn execute(in_buffer: Vec<f32>, new_samples: i32, out_buffer: Vec<f32>, plan: Plan) {}
-fn destroy(plan: Plan) {}
+fn execute(cava_in: Vec<f32>, cava_out: Vec<f32>, p: &mut Plan) {
+    // overflow check
+    let new_samples = cava_in.len();
+    let mut silence: i32 = 1;
+    if new_samples > 0 {
+        p.framerate -= p.framerate / 64.0;
+        p.framerate += (((p.rate * p.audio_channels) as i32 * p.frame_skip) as f32
+            / new_samples as f32)
+            / 64.0;
+        p.frame_skip = 1;
+        for n in (p.input_buffer_size - 1) as usize..new_samples {
+            p.input_buffer[n] = p.input_buffer[n - new_samples];
+        }
+        // fill the input buffer
+        for n in 0..new_samples {
+            p.input_buffer[new_samples - n - 1] = cava_in[n];
+            if cava_in[n] != 0.0 {
+                silence = 0;
+            }
+        }
+    } else {
+        p.frame_skip += 1;
+    }
+    // fill the bass,mid and treble buffers
+    for n in 0..p.fft_bassbuffer_size as usize {
+        if p.audio_channels == 2 {
+            p.in_bass_r_raw[n] = p.input_buffer[n * 2];
+            p.in_bass_l_raw[n] = p.input_buffer[2 * n + 1];
+        } else {
+            p.in_bass_l_raw[n] = p.input_buffer[n];
+        }
+    }
+
+    for n in 0..p.fft_midbuffer_size as usize {
+        if p.audio_channels == 2 {
+            p.in_mid_r_raw[n] = p.input_buffer[n * 2];
+            p.in_mid_l_raw[n] = p.input_buffer[2 * n + 1];
+        } else {
+            p.in_mid_l_raw[n] = p.input_buffer[n];
+        }
+    }
+    for n in 0..p.fft_treblebuffer_size as usize {
+        if p.audio_channels == 2 {
+            p.in_treble_r_raw[n] = p.input_buffer[n * 2];
+            p.in_treble_l_raw[n] = p.input_buffer[2 * n + 1];
+        } else {
+            p.in_treble_l_raw[n] = p.input_buffer[n];
+        }
+    }
+    p.p_bass_l
+        .as_mut()
+        .unwrap()
+        .r2c(&mut p.in_bass_l, &mut p.out_bass_l)
+        .unwrap();
+    p.p_mid_l
+        .as_mut()
+        .unwrap()
+        .r2c(&mut p.in_mid_l, &mut p.out_mid_l)
+        .unwrap();
+    p.p_treble_l
+        .as_mut()
+        .unwrap()
+        .r2c(&mut p.in_treble_l, &mut p.out_treble_l)
+        .unwrap();
+    if p.audio_channels == 2 {
+        p.p_bass_r
+            .as_mut()
+            .unwrap()
+            .r2c(&mut p.in_bass_r, &mut p.out_bass_r)
+            .unwrap();
+        p.p_mid_r
+            .as_mut()
+            .unwrap()
+            .r2c(&mut p.in_mid_r, &mut p.out_mid_r)
+            .unwrap();
+        p.p_treble_r
+            .as_mut()
+            .unwrap()
+            .r2c(&mut p.in_treble_r, &mut p.out_treble_r)
+            .unwrap();
+    }
+    //separate frequency bands
+}
