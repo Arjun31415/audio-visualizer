@@ -595,6 +595,11 @@ fn execute(cava_in: &Vec<f32>, mut new_samples: usize, cava_out: &mut Vec<f32>, 
             .r2c(&mut p.in_treble_r, &mut p.out_treble_r)
             .unwrap();
     }
+    println!("Bass buffer l: ");
+    for x in 0..10 {
+        print!("{:?} ", p.out_bass_l[x]);
+    }
+    println!("");
     // separate frequency bands
     for n in 0..p.number_of_bars as usize {
         let mut temp_l: f32 = 0.0;
@@ -634,7 +639,7 @@ fn execute(cava_in: &Vec<f32>, mut new_samples: usize, cava_out: &mut Vec<f32>, 
             cava_out[n as usize] *= p.sens;
         }
     }
-    // dbg!(&cava_out);
+    dbg!(&cava_out);
     let mut overshoot: bool = false;
     let mut gravity_mod: f32 = (60.0 / p.framerate).powf(2.5) * 1.54 / p.noise_reduction;
     if gravity_mod < 1.0 {
@@ -647,7 +652,10 @@ fn execute(cava_in: &Vec<f32>, mut new_samples: usize, cava_out: &mut Vec<f32>, 
             dbg!(p.sens);
         } */
         if cava_out[n] < p.prev_cava_out[n] && p.noise_reduction > 0.1 {
-            println!("n: {} cava_out: {} prev_cava_out: {}", n, cava_out[n],p.prev_cava_out[n]);
+            println!(
+                "n: {} cava_out: {} prev_cava_out: {}",
+                n, cava_out[n], p.prev_cava_out[n]
+            );
             cava_out[n] = p.cava_peak[n] * (1.0 - (p.cava_fall[n] * p.cava_fall[n] * gravity_mod));
             if cava_out[n] < 0.0 {
                 cava_out[n] = 0.0;
@@ -741,7 +749,7 @@ mod tests {
                     .sin()
                     * 20000.0;
             }
-            // println!("{:?}", cava_in);
+            println!("{:?}", cava_in);
             execute(&cava_in, buffer_size as usize, &mut cava_out, &mut plan);
         }
         // dbg!(&cava_out);
