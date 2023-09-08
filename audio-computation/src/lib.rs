@@ -1,14 +1,10 @@
+use rustfft::{num_complex::Complex, Fft, FftPlanner};
 use std::{
     cmp::{max, min},
     f32::consts::PI,
+    sync::Arc,
 };
 
-use fftw::{
-    self,
-    array::AlignedVec,
-    plan::{R2CPlan, R2CPlan32},
-    types::{c32, Flag},
-};
 #[allow(dead_code)]
 pub struct Plan {
     fft_bassbuffer_size: i32,
@@ -29,36 +25,37 @@ pub struct Plan {
     framerate: f32,
     noise_reduction: f32,
 
-    p_bass_l: Option<R2CPlan32>,
-    p_bass_r: Option<R2CPlan32>,
-    p_mid_l: Option<R2CPlan32>,
-    p_mid_r: Option<R2CPlan32>,
-    p_treble_l: Option<R2CPlan32>,
-    p_treble_r: Option<R2CPlan32>,
+    p_bass_l: Option<Arc<dyn Fft<f32>>>,
+    p_bass_r: Option<Arc<dyn Fft<f32>>>,
+    p_mid_l: Option<Arc<dyn Fft<f32>>>,
+    p_mid_r: Option<Arc<dyn Fft<f32>>>,
+    p_treble_l: Option<Arc<dyn Fft<f32>>>,
+    p_treble_r: Option<Arc<dyn Fft<f32>>>,
 
-    out_bass_l: AlignedVec<c32>,
-    out_bass_r: AlignedVec<c32>,
-    out_mid_l: AlignedVec<c32>,
-    out_mid_r: AlignedVec<c32>,
-    out_treble_l: AlignedVec<c32>,
-    out_treble_r: AlignedVec<c32>,
+    out_bass_l: Vec<Complex<f32>>,
+    out_bass_r: Vec<Complex<f32>>,
+    out_mid_l: Vec<Complex<f32>>,
+    out_mid_r: Vec<Complex<f32>>,
+    out_treble_l: Vec<Complex<f32>>,
+    out_treble_r: Vec<Complex<f32>>,
 
     bass_multiplier: Vec<f32>,
     mid_multiplier: Vec<f32>,
     treble_multiplier: Vec<f32>,
 
-    in_bass_r_raw: AlignedVec<f32>,
-    in_bass_l_raw: AlignedVec<f32>,
-    in_mid_r_raw: AlignedVec<f32>,
-    in_mid_l_raw: AlignedVec<f32>,
-    in_treble_r_raw: AlignedVec<f32>,
-    in_treble_l_raw: AlignedVec<f32>,
-    in_bass_r: AlignedVec<f32>,
-    in_bass_l: AlignedVec<f32>,
-    in_mid_r: AlignedVec<f32>,
-    in_mid_l: AlignedVec<f32>,
-    in_treble_r: AlignedVec<f32>,
-    in_treble_l: AlignedVec<f32>,
+    in_bass_r_raw: Vec<f32>,
+    in_bass_l_raw: Vec<f32>,
+    in_mid_r_raw: Vec<f32>,
+    in_mid_l_raw: Vec<f32>,
+    in_treble_r_raw: Vec<f32>,
+    in_treble_l_raw: Vec<f32>,
+
+    in_bass_r: Vec<Complex<f32>>,
+    in_bass_l: Vec<Complex<f32>>,
+    in_mid_r: Vec<Complex<f32>>,
+    in_mid_l: Vec<Complex<f32>>,
+    in_treble_r: Vec<Complex<f32>>,
+    in_treble_l: Vec<Complex<f32>>,
 
     prev_cava_out: Vec<f32>,
     cava_mem: Vec<f32>,
@@ -98,37 +95,36 @@ impl Default for Plan {
             p_mid_r: None,
             p_treble_l: None,
             p_treble_r: None,
-            out_bass_l: AlignedVec::new(0),
-            out_bass_r: AlignedVec::new(0),
-            out_mid_l: AlignedVec::new(0),
-            out_mid_r: AlignedVec::new(0),
-            out_treble_l: AlignedVec::new(0),
-            out_treble_r: AlignedVec::new(0),
-            bass_multiplier: vec![0_f32; 0],
-            mid_multiplier: vec![0_f32; 0],
-            treble_multiplier: vec![0_f32; 0],
-            in_bass_r_raw: AlignedVec::new(0),
-            in_bass_l_raw: AlignedVec::new(0),
-            in_mid_r_raw: AlignedVec::new(0),
-            in_mid_l_raw: AlignedVec::new(0),
-            in_treble_r_raw: AlignedVec::new(0),
-            in_treble_l_raw: AlignedVec::new(0),
-            in_bass_r: AlignedVec::new(0),
-            in_bass_l: AlignedVec::new(0),
-            in_mid_r: AlignedVec::new(0),
-            in_mid_l: AlignedVec::new(0),
-            in_treble_r: AlignedVec::new(0),
-            in_treble_l: AlignedVec::new(0),
-            prev_cava_out: vec![0_f32; 0],
-            cava_mem: vec![0_f32; 0],
-            input_buffer: vec![0_f32; 0],
-            cava_peak: vec![0_f32; 0],
-
-            eq: vec![0_f32; 0],
-            cut_off_frequency: vec![0_f32; 0],
-            FFTbuffer_upper_cut_off: vec![0; 0],
-            FFTbuffer_lower_cut_off: vec![0; 0],
-            cava_fall: vec![0_f32; 0],
+            out_bass_l: Vec::new(),
+            out_bass_r: Vec::new(),
+            out_mid_l: Vec::new(),
+            out_mid_r: Vec::new(),
+            out_treble_l: Vec::new(),
+            out_treble_r: Vec::new(),
+            bass_multiplier: Vec::new(),
+            mid_multiplier: Vec::new(),
+            treble_multiplier: Vec::new(),
+            in_bass_r_raw: Vec::new(),
+            in_bass_l_raw: Vec::new(),
+            in_mid_r_raw: Vec::new(),
+            in_mid_l_raw: Vec::new(),
+            in_treble_r_raw: Vec::new(),
+            in_treble_l_raw: Vec::new(),
+            in_bass_r: Vec::new(),
+            in_bass_l: Vec::new(),
+            in_mid_r: Vec::new(),
+            in_mid_l: Vec::new(),
+            in_treble_r: Vec::new(),
+            in_treble_l: Vec::new(),
+            prev_cava_out: Vec::new(),
+            cava_mem: Vec::new(),
+            input_buffer: Vec::new(),
+            cava_peak: Vec::new(),
+            eq: Vec::new(),
+            cut_off_frequency: Vec::new(),
+            FFTbuffer_upper_cut_off: Vec::new(),
+            FFTbuffer_lower_cut_off: Vec::new(),
+            cava_fall: Vec::new(),
         };
     }
 }
@@ -254,93 +250,46 @@ fn init(
         p.treble_multiplier[i as usize] =
             0.5 * (1.0 - (2.0 * PI * i as f32 / (p.fft_treblebuffer_size - 1) as f32).cos());
     }
+    let mut planner = FftPlanner::<f32>::new();
     // BASS
     let tmp_size = p.fft_bassbuffer_size as usize;
-    p.in_bass_l = AlignedVec::new(tmp_size);
-    p.in_bass_l_raw = AlignedVec::new(tmp_size);
-    p.out_bass_l = AlignedVec::<c32>::new(tmp_size / 2 + 1);
-    p.p_bass_l = Some(
-        R2CPlan32::new(
-            &[tmp_size],
-            &mut p.in_bass_l,
-            &mut p.out_bass_l,
-            Flag::MEASURE,
-        )
-        .unwrap(),
-    );
+    p.in_bass_l = vec![Complex { re: 0.0, im: 0.0 }; tmp_size];
+    p.in_bass_l_raw = vec![0.0; tmp_size];
+    p.out_bass_l = vec![Complex { re: 0.0, im: 0.0 }; tmp_size / 2 + 1];
+    p.p_bass_l = Some(planner.plan_fft_forward(tmp_size));
 
     // MID
     let tmp_size = p.fft_midbuffer_size as usize;
-    p.in_mid_l = AlignedVec::new(tmp_size);
-    p.in_mid_l_raw = AlignedVec::new(tmp_size);
-    p.out_mid_l = AlignedVec::<c32>::new(tmp_size / 2 + 1);
-    p.p_mid_l = Some(
-        R2CPlan32::new(
-            &[tmp_size],
-            &mut p.in_mid_l,
-            &mut p.out_mid_l,
-            Flag::MEASURE,
-        )
-        .unwrap(),
-    );
+    p.in_mid_l = vec![Complex { re: 0.0, im: 0.0 }; tmp_size];
+    p.in_mid_l_raw = vec![0.0; tmp_size];
+    p.out_mid_l = vec![Complex { re: 0.0, im: 0.0 }; tmp_size / 2 + 1];
+    p.p_mid_l = Some(planner.plan_fft_forward(tmp_size));
 
     // TREBLE
     let tmp_size = p.fft_treblebuffer_size as usize;
-    p.in_treble_l = AlignedVec::new(tmp_size);
-    p.in_treble_l_raw = AlignedVec::new(tmp_size);
-    p.out_treble_l = AlignedVec::new(tmp_size / 2 + 1);
-    p.p_treble_l = Some(
-        R2CPlan32::new(
-            &[tmp_size],
-            &mut p.in_treble_l,
-            &mut p.out_treble_l,
-            Flag::MEASURE,
-        )
-        .unwrap(),
-    );
+    p.in_treble_l = vec![0.0.into(); tmp_size];
+    p.in_treble_l_raw = vec![0.0; tmp_size];
+    p.out_treble_l = vec![Complex { re: 0.0, im: 0.0 }; tmp_size / 2 + 1];
+    p.p_treble_l = Some(planner.plan_fft_forward(tmp_size));
     if p.audio_channels == 2 {
         // BASS
         let tmp_size = p.fft_bassbuffer_size as usize;
-        p.in_bass_r = AlignedVec::new(tmp_size);
-        p.in_bass_r_raw = AlignedVec::new(tmp_size);
-        p.out_bass_r = AlignedVec::new(tmp_size / 2 + 1);
-        p.p_bass_r = Some(
-            R2CPlan32::new(
-                &[tmp_size],
-                &mut p.in_bass_r,
-                &mut p.out_bass_r,
-                Flag::MEASURE,
-            )
-            .unwrap(),
-        );
+        p.in_bass_r = vec![0.0.into(); tmp_size];
+        p.in_bass_r_raw = vec![0.0; tmp_size];
+        p.out_bass_r = vec![Complex { re: 0.0, im: 0.0 }; tmp_size / 2 + 1];
+        p.p_bass_r = Some(planner.plan_fft_forward(tmp_size));
         // MID
         let tmp_size = p.fft_midbuffer_size as usize;
-        p.in_mid_r = AlignedVec::new(tmp_size);
-        p.in_mid_r_raw = AlignedVec::new(tmp_size);
-        p.out_mid_r = AlignedVec::new(tmp_size / 2 + 1);
-        p.p_mid_r = Some(
-            R2CPlan32::new(
-                &[tmp_size],
-                &mut p.in_mid_r,
-                &mut p.out_mid_r,
-                Flag::MEASURE,
-            )
-            .unwrap(),
-        );
+        p.in_mid_r = vec![0.0.into(); tmp_size];
+        p.in_mid_r_raw = vec![0.0; tmp_size];
+        p.out_mid_r = vec![Complex { re: 0.0, im: 0.0 }; tmp_size / 2 + 1];
+        p.p_mid_r = Some(planner.plan_fft_forward(tmp_size));
         // TREBLE
         let tmp_size = p.fft_treblebuffer_size as usize;
-        p.in_treble_r = AlignedVec::new(tmp_size);
-        p.in_treble_r_raw = AlignedVec::new(tmp_size);
-        p.out_treble_r = AlignedVec::new(tmp_size / 2 + 1);
-        p.p_treble_r = Some(
-            R2CPlan32::new(
-                &[tmp_size],
-                &mut p.in_treble_r,
-                &mut p.out_treble_r,
-                Flag::MEASURE,
-            )
-            .unwrap(),
-        );
+        p.in_treble_r = vec![0.0.into(); tmp_size];
+        p.in_treble_r_raw = vec![0.0; tmp_size];
+        p.out_treble_r = vec![Complex { re: 0.0, im: 0.0 }; tmp_size / 2 + 1];
+        p.p_treble_r = Some(planner.plan_fft_forward(tmp_size));
     }
     p.input_buffer = vec![0.0; p.input_buffer_size as usize];
     p.cava_fall = vec![0.0; (number_of_bars as u32 * channels) as usize];
@@ -541,59 +490,35 @@ fn execute(cava_in: &Vec<f32>, mut new_samples: usize, cava_out: &mut Vec<f32>, 
     }
     // Hann Window
     for i in 0..p.fft_bassbuffer_size as usize {
-        p.in_bass_l[i] = p.bass_multiplier[i] * p.in_bass_l_raw[i];
+        p.in_bass_l[i].re = p.bass_multiplier[i] * p.in_bass_l_raw[i];
         if p.audio_channels == 2 {
-            p.in_bass_r[i] = p.bass_multiplier[i] * p.in_bass_r_raw[i];
+            p.in_bass_r[i].re = p.bass_multiplier[i] * p.in_bass_r_raw[i];
         }
     }
 
     for i in 0..p.fft_midbuffer_size as usize {
-        p.in_mid_l[i] = p.mid_multiplier[i] * p.in_mid_l_raw[i];
+        p.in_mid_l[i].re = p.mid_multiplier[i] * p.in_mid_l_raw[i];
         if p.audio_channels == 2 {
-            p.in_mid_r[i] = p.mid_multiplier[i] * p.in_mid_r_raw[i];
+            p.in_mid_r[i].re = p.mid_multiplier[i] * p.in_mid_r_raw[i];
         }
     }
     for i in 0..p.fft_treblebuffer_size as usize {
-        p.in_treble_l[i] = p.treble_multiplier[i] * p.in_treble_l_raw[i];
+        p.in_treble_l[i].re = p.treble_multiplier[i] * p.in_treble_l_raw[i];
         if p.audio_channels == 2 {
-            p.in_treble_r[i] = p.treble_multiplier[i] * p.in_treble_r_raw[i];
+            p.in_treble_r[i].re = p.treble_multiplier[i] * p.in_treble_r_raw[i];
         }
     }
 
-    p.p_bass_l
-        .as_mut()
-        .unwrap()
-        .r2c(&mut p.in_bass_l, &mut p.out_bass_l)
-        .unwrap();
+    p.p_bass_l.as_mut().unwrap().process(&mut p.in_bass_l);
     /* for x in 0..p.out_bass_l.len() {
         print!("{:?}", p.out_bass_l[x]);
     } */
-    p.p_mid_l
-        .as_mut()
-        .unwrap()
-        .r2c(&mut p.in_mid_l, &mut p.out_mid_l)
-        .unwrap();
-    p.p_treble_l
-        .as_mut()
-        .unwrap()
-        .r2c(&mut p.in_treble_l, &mut p.out_treble_l)
-        .unwrap();
+    p.p_mid_l.as_mut().unwrap().process(&mut p.in_mid_l);
+    p.p_treble_l.as_mut().unwrap().process(&mut p.in_treble_l);
     if p.audio_channels == 2 {
-        p.p_bass_r
-            .as_mut()
-            .unwrap()
-            .r2c(&mut p.in_bass_r, &mut p.out_bass_r)
-            .unwrap();
-        p.p_mid_r
-            .as_mut()
-            .unwrap()
-            .r2c(&mut p.in_mid_r, &mut p.out_mid_r)
-            .unwrap();
-        p.p_treble_r
-            .as_mut()
-            .unwrap()
-            .r2c(&mut p.in_treble_r, &mut p.out_treble_r)
-            .unwrap();
+        p.p_bass_r.as_mut().unwrap().process(&mut p.in_bass_r);
+        p.p_mid_r.as_mut().unwrap().process(&mut p.in_mid_r);
+        p.p_treble_r.as_mut().unwrap().process(&mut p.in_treble_r);
     }
     println!("Bass buffer l: ");
     for x in 0..10 {
