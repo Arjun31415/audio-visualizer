@@ -509,6 +509,12 @@ fn execute(cava_in: &Vec<f32>, mut new_samples: usize, cava_out: &mut Vec<f32>, 
         }
     }
 
+    println!("Bass buffer l size: {}", p.in_bass_l.len());
+    for x in 0..10 {
+        print!("{:?} ", p.in_bass_l[x]);
+    }
+    println!("");
+
     p.p_bass_l.as_mut().unwrap().process(&mut p.in_bass_l);
     /* for x in 0..p.out_bass_l.len() {
         print!("{:?}", p.out_bass_l[x]);
@@ -520,10 +526,11 @@ fn execute(cava_in: &Vec<f32>, mut new_samples: usize, cava_out: &mut Vec<f32>, 
         p.p_mid_r.as_mut().unwrap().process(&mut p.in_mid_r);
         p.p_treble_r.as_mut().unwrap().process(&mut p.in_treble_r);
     }
-    println!("Bass buffer l: ");
+    println!("Bass buffer l size: {}", p.in_bass_l.len());
     for x in 0..10 {
-        print!("{:?} ", p.out_bass_l[x]);
+        print!("{:?} ", p.in_bass_l[x]);
     }
+    assert_eq!(p.in_bass_l[0], p.in_bass_l[p.in_bass_l.len() - 1]);
     println!("");
     // separate frequency bands
     for n in 0..p.number_of_bars as usize {
